@@ -1,0 +1,481 @@
+# Results
+
+```{r include=FALSE}
+# Basics
+if(!require(dplyr)) install.packages("dplyr")
+if(!require(tibble)) install.packages("tibble")
+if(!require(tidyr)) install.packages("tidyr")
+if(!require(ggplot2)) install.packages("ggplot2")
+if(!require(forcats)) install.packages("forcats")
+if(!require(patchwork)) install.packages("patchwork")
+if(!require(scales)) install.packages("scales")
+if(!require(readr)) install.packages("readr")
+if(!require(ggthemes)) install.packages("ggthemes")
+if(!require(ggrepel)) install.packages("ggrepel")
+if(!require(GGally)) install.packages("GGally")
+if(!require(plotly)) install.packages("plotly")
+if(!require(forcats)) install.packages("forcats")
+if(!require(stringr)) install.packages("stringr")
+
+if(!require(ggpubr)) install.packages("ggpubr")
+if(!require(PupillometryR)) install.packages("PupillometryR")
+if(!require(ggridges)) install.packages("ggridges")
+if(!require(RColorBrewer)) install.packages("RColorBrewer")
+if(!require(magrittr)) install.packages("magrittr") # allow %<>%
+
+if(!require(vcd)) install.packages("vcd")
+if(!require(d3r)) install.packages("d3r")
+if(!require(ggalluvial)) install.packages("ggalluvial")
+if(!require(parcoords)) install.packages("parcoords")
+
+# pair plot
+if(!require(gridGraphics)) install.packages("gridGraphics")
+if(!require(gridExtra)) install.packages("gridExtra")
+
+library("data.table")
+library(mi)
+theme(plot.title = element_text(hjust=0.5))  -> center_title
+```
+
+```{r include=FALSE}
+if(!require(stopwords)) install.packages("stopwords")
+library("stopwords")
+library(tidyverse)
+library(tidytext)
+library("wordcloud")
+library("wordcloud2")
+library(textstem)
+library(rmarkdown)
+
+median_ybh <- function(x) median(x,na.rm=T)
+mean_ybh <- function(x) mean(x,na.rm = T)
+```
+
+```{r echo=FALSE}
+# Loading
+library("readxl")
+data <- read_excel("data/clean_loc.xlsx")
+split(data, data$job_type) -> datas
+```
+
+
+
+```{r echo=FALSE}
+# turn into lower case
+data%>% 
+  mutate(lower_jd = tolower(`Job Description`)) -> data
+         
+c("python", "sql", "hadoop", "mysql", "tensorflow", "numpy","pandas","machine[[:space:]]learning","excel","tensorflow",
+"keras","pytorch","[[:space:]]ai[[:space:]]","data[[:space:]]visualization","business[[:space:]]strategy","database","spark","git","[[:space:]]c[[:space:]]","matlab","matplotlib","scipy","opencv","anaconda","spacy","nlp","java","[[:space:]]golang[[:space:]]","github","kaggle","tableau","java[[:space:]]script","[[:space:]]r[[:space:]]" ) ->tech_requires
+
+for(tech_require in tech_requires){
+  new_column_name = paste0("require_", tech_require)
+  data %<>%
+    mutate(!!sym(new_column_name) := ifelse(grepl(tech_require, 
+                                                  `lower_jd`, 
+                                                  ignore.case = T), 1, 0)) 
+}
+# " r " %in% 
+
+
+c('scikit-learn','sklearn',"scikit[[:space:]]learn") -> tech_requires3
+
+for(tech_require in tech_requires3){
+  new_column_name = paste0("require_", tech_require)
+  data %<>%
+    mutate(!!sym(new_column_name) := ifelse(grepl(tech_require, 
+                                                  `lower_jd`), 1, 0)) 
+}
+
+data %>% 
+  rowwise()  %>% 
+  mutate(require_scikit_learn = max(`require_scikit-learn`,
+                               `require_sklearn`,
+                               `require_scikit[[:space:]]learn`,
+                               na.rm=T)) %>%
+  ungroup()%>%
+  select(-`require_scikit-learn`,
+         -`require_sklearn`,
+         -`require_scikit[[:space:]]learn`)-> data_2 
+
+
+data_2 %>%
+  select(`Avg_salary(k)`, contains("require_")) %>%
+  pivot_longer(2:ncol(.),
+               names_to = "Tech") %>% 
+  mutate(Tech = gsub("require_", "", Tech)) %>%
+  mutate(Tech = gsub("[[:space:]]+", " ", Tech)) %>%
+  mutate(Tech = gsub("\\[\\[\\:space\\:\\]\\]", " ", Tech)) %>%
+  filter(value !=0) -> skill_data
+
+skill_data %>%
+  group_by(Tech)%>%
+  summarise(freq=n())%>%
+  arrange(-freq)-> skill_count  
+
+median_ybh <- function(x) median(x,na.rm=T)
+
+```
+## wordcloud for skillset
+
+```{r echo=FALSE, fig,width = 3, fig.height = 3}
+skill_count %>% 
+  arrange(-freq)%>% 
+  ungroup() %>% 
+  as.data.frame() -> df_word
+
+rownames(df_word) <- df_word$Tech
+wordcloud2(df_word , size = 2, shape = 'data') 
+```
+A very important aspect of salary is the skill set employees have. So we investigated the job description to find key words of skill sets.
+
+From job description, find the frequency of appearance of certain skill sets, such as python, r, pytorch. 
+
+We used word cloud to represent the frequency of each key word appeared in the sets. 
+
+The result word could shows us the frequency of each skill required in the data science related jobs. 
+
+The final result shows us that “R” and “SQL” is the most frequently required skill for all data related jobs.
+
+
+## Box plot for skillset vs salary
+```{r echo=FALSE, fig.width=8.5}
+skill_data %>%
+  mutate(rank = fct_reorder(Tech, 
+                            `Avg_salary(k)`, 
+                            median_ybh))%>%
+  ggplot(aes(x = rank,
+      y = `Avg_salary(k)`))+
+  geom_boxplot(show.legend = F) +
+  theme(axis.text.x = element_text(hjust=0.85, angle=30)) +
+  labs(title = "Skill set vs salary") +
+  labs(x = "Skill set") +
+  labs(y = "Average salary in k")+ 
+  center_title 
+
+```
+
+We want to analyze the relationship between skill set and the salary. If we want to get a high salary, what skill do we need to master? 
+
+We extract the words about the skill set and take the median of every job that includes the specific words. The boxplot ranks the skills by the median salary. From the graph, we can know that the most paid skills are pytorch, tensorflow and spacy, which are skills about machine learning and natural language processing. It means that if we want to get a high paid job, we need to master the skills of the machine learning. Some skills like excel, database and data visualization appeared frequently in the job description but the median of the job salary including these skills is low. It means that the skills like excel are base skills which are required by most of the jobs. But mastering these skills doesn’t mean getting a high paid job.
+
+
+## salary vs job title 
+```{r echo=FALSE, fig.width=8.5}
+data %>%
+  drop_na(job_type)   %>% 
+  mutate_if(is.numeric, ~replace(., is.na(.), 0))  %>% 
+  ggplot(aes(y=`Avg_salary(k)`, 
+             x = job_type)) +
+  geom_boxplot(show.legend = F) +
+  labs(title = 'Average salary for job titles') + 
+  labs(x = "Job titile") +
+  labs(y = 'Average salary in unit k') +
+  center_title
+```
+We want to find the relation between salary amount and job titles. We classified all jobs in the dataset into four classes: Business Analyst, Data Analyst, Data Engineer and Data Scientist. Box plot is a great method to get to understand the distribution of salary amount in those four group of employees, as it shows us the mean, fist quantile, last quintile and can also list all outliers. By putting four jobs together, we can compare them and find out which one normally get to be paid more. First of all, DA,DE and DS have the same highest salary, while BA’s highest salary is relatively lower. Secondly, DS job salaries are less concentrated: Data Scientists can be paid very high and also be very low, while Business Analysts normally will not be paid very low, but also can not be too high. Among all job positions, Data Engineers salaries are concentrated at a higher amount.
+
+## Education level vs salary
+```{r echo=FALSE}
+data%>% 
+  mutate(lower_jd = tolower(`Job Description`))%>% 
+  select("Job Title","lower_jd","Sector","Low_salary(k)","High_salary(k)","Avg_salary(k)") -> data_lower
+
+c("bacherlor" ,"undergraduate","undergrad","undergraduate[[:space:]]student") -> undergrads
+c("master","grad","graduate[[:space:]]student") -> grads
+c("phd","doctorate","doctor")  -> phds
+
+for(undergrad in undergrads){
+  new_column_name = paste0("require_", undergrad)
+  data_lower %<>%
+    mutate(!!sym(new_column_name) := ifelse(grepl(undergrad, 
+                                                `lower_jd`), 1, 0))
+}
+
+for(grad in grads){
+  new_column_name = paste0("require_", grad)
+  data_lower %<>%
+    mutate(!!sym(new_column_name) := ifelse(grepl(grad, 
+                                                  `lower_jd`), 1, 0))
+}
+
+for(phd in phds){
+  new_column_name = paste0("require_", phd)
+  data_lower %<>%
+    mutate(!!sym(new_column_name) := ifelse(grepl(phd, 
+                                                  `lower_jd`), 1, 0))
+}
+
+
+data_lower %>%  
+  rowwise()  %>% 
+  mutate(require_Phd = max(`require_phd`,`require_doctorate`,`require_doctor`,
+                               na.rm=T)) %>% 
+  mutate(require_Master = max(`require_master`,
+                               `require_grad`,
+                               `require_graduate[[:space:]]student`,
+                               na.rm=T)) %>%
+  mutate(require_Bacherlor = max(`require_bacherlor`,
+                               `require_undergraduate`,
+                               `require_undergrad`,
+                               `require_undergraduate[[:space:]]student`,
+                               na.rm=T)) %>% 
+  ungroup() %>% 
+  select(-`require_phd`,-`require_doctorate`,-`require_doctor`) %>%
+  select(-`require_master`, 
+         -`require_grad`, 
+         -`require_graduate[[:space:]]student`) %>%
+  select(-`require_bacherlor`,
+         -`require_undergraduate`,
+         -`require_undergrad`,
+         -`require_undergraduate[[:space:]]student`)-> data_academic   
+
+data_academic%>% 
+  select(`Avg_salary(k)`, contains("require_")) %>%
+  pivot_longer(2:ncol(.),
+               names_to = "Academic")%>% 
+  mutate(Academic = gsub("require_", "", Academic)) %>%
+  mutate(Academic = gsub("[[:space:]]+", " ", Academic)) %>%
+  mutate(Academic = gsub("\\[\\[\\:space\\:\\]\\]", " ", Academic)) %>%
+  filter(value !=0) -> data_academics 
+
+
+median_ybh <- function(x) median(x,na.rm=T)
+```
+
+```{r echo=FALSE, fig.width=8.5}
+data_academics %>% 
+  mutate(ranking = fct_reorder(Academic, 
+                            `Avg_salary(k)`, 
+                            median_ybh))%>%
+  ggplot(aes(x = ranking,
+      y = `Avg_salary(k)`))+
+  geom_boxplot(show.legend = F) +
+  labs(title = "Education vs salary") +
+  labs(x = "Education") +
+  labs(y = "Average salary in unit k") + 
+  center_title 
+
+```
+Education level of an employee should be a key factor in their salary amount. We want to verify this guess. We utilized box plot to show salary distribution of jobs that require different education level of their applicants. As shown in the graph, jobs that require applicants PhD degrees normally pay more: their mean, first quantile and last quantile are all higher than the jobs that require master degree or lower. Employees with PhD degree get to be paid 100k per year on avaegae.  As a takeaway, applicants are encouraged to pursue higher degrees to get higher paid jobs. On average, PhDs get to be paid more than 20k than employees with lower education degrees.
+
+
+## Ridge line plot for sector vs salary
+```{r echo=FALSE,message=FALSE, warning=FALSE}
+data%>% 
+  drop_na(Sector)%>% 
+  group_by(Sector)%>% 
+  summarise(n = n()) %>%
+  arrange(-n) %>%
+  mutate(sector_label = ifelse(min_rank(-n) <=30, Sector, "Others") %>%
+  factor %>% fct_relevel("Others", after=Inf)) -> sector_to_label_map
+
+data %>%
+  right_join(sector_to_label_map) -> sector_data
+```
+
+```{r echo=FALSE, fig.width=8.5,fig.height=9}
+sector_data%>% 
+  ggplot(aes(y=fct_reorder(sector_label, `Avg_salary(k)`,median_ybh) %>%
+               fct_relevel("Others", after=Inf),
+             x=`Avg_salary(k)`, fill = sector_label)) + 
+  geom_density_ridges(alpha=0.6)  + 
+  labs(title = 'Sector vs salary') + 
+  labs(y = "Salary") +
+  labs(x = 'Sector') +
+  theme_ridges() + 
+  theme(legend.position = "none") +
+  theme(axis.title.y = element_text(angle=0, vjust = 0.5)) +
+  theme(axis.title.x = element_text(angle=0, hjust = 0.5)) +
+  center_title 
+```
+We want to find out if job salary is affected by industry in which this job belongs. And ridge line is a great choice because it can show us the distribution of salary amount over every industry that the dataset includes.
+As shown above, the result ridge line shows us salary distribution over 25 high-paid industries such as biotech, media, information technology and so on. They are sorted based on the mean salary amount. Among all industries, Biotech, Media, Arts, Entertainment & Recreation have the highest average salary compared to other industries. While Arts, Entertainment & Recreation having a high average salary, its first quartile is very low. That means a bigger portion of employees in this industry are paid with a very average salary, and a small portion of employees in this industry are very high-paid. Employees in the industry of Information Industry have a very spread-out distribution of salary amount. That means there are many of them being high-paid and there are also many of them being low-paid. Ridge lines of some of the industries, for example Telecommunications, have multiple peaks, meaning that among one industry, there are other key factors to determine an employee’s salary amount. This factor might be company and positions. We will discuss this later in the report. Employees in the industries of Mining, Agricultural, and Non-profit companies get relatively lower amount of salary comparing to others.
+
+
+## Hex plot for founded year vs salary hex plot
+```{r echo=FALSE, fig.width=8.5}
+
+data%>% 
+  drop_na(Founded)%>% 
+  ggplot(aes(x=`Founded`,
+             y=`Avg_salary(k)`)) +
+  facet_wrap(~job_type) + 
+  geom_hex(bins = 50) +
+  scale_fill_gradient(low = "#DEEBF7", high = "#08519C") + 
+  labs(title = 'Company founded year vs salary') + 
+  labs(y = "Salary") +
+  labs(x = 'Company founded year') +
+  theme_classic() +
+  center_title
+
+```
+We want to find which aspect of companies affect salaries. We guess that year founded of a company will affect salary. We verify this guess by plotting out salary and company year founded on a hex map. We chose this plot because we can easily locate concentration of a set of data on the graph and we can also examine the distribution of peaks over the map. In the result hex map, we found that for BA and DA positions, highest salaries are all provided by companies that are founded in recent years, while for DE and DS positions, this pattern is not as clear as others. We also find out that, for BA and DA positions, salaries in young companies normally tend to concentrate at a same level, as shown as the darker parts in the graph. While for DE and DS, there are hardly darker spots, indicating that the salaries are relatively evenly distributed. 
+
+
+## Cleveland dot plot for Company vs salary
+```{r echo=FALSE}
+data %>% 
+  group_by(`Name of Company`) %>%
+  summarise(n= n()) %>%
+  mutate(company_label = ifelse(min_rank(-n) <=20, `Name of Company`, "Others") %>%
+  factor %>% fct_relevel("Others", after=Inf)) -> company_to_label_map
+
+data %>%
+  left_join(company_to_label_map) -> company_data
+
+company_data%>%  
+  drop_na(`job_type`)%>% 
+  group_by(`job_type`,company_label)%>% 
+  mutate(salary_jobT= mean_ybh(`Avg_salary(k)`)) %>% 
+  arrange(-salary_jobT) %>% 
+  select(company_label,`job_type`,salary_jobT)%>%
+  filter(company_label != "Others") -> data_company
+
+```
+
+```{r echo=FALSE, fig.width=8.5, fig.height = 7}
+data_company%>%
+  ggplot(aes(x=salary_jobT,
+            y=fct_reorder(company_label, salary_jobT,median_ybh),
+            color = `job_type`))+
+  geom_point(size = 2)  + 
+  labs(title = 'Company vs salary') + 
+  labs(y = "Company") +
+  labs(x = 'Salary') +
+  theme_linedraw() +
+  center_title
+  
+```
+We want to know which company pays more to their employees. We classify the employees into four different groups by their job titles, because different job titles apparently will have distinct salary level. We select top 20 companies who pay the most to their employees among all companies in the data set. We use Cleveland dot plot because it shows the difference salary level and also indicates witch jobs title is paid more. As we can see from the plot, Apple, Amazon and IBM pays the most to their employees. Different color dots represents employees in different job titles. We can see from the plot that Data Engineers are normally high paid among all companies listed. And Business Analysts are normally low-paid. In different companies, Data Engineers have very distinct salaries, while Business Analysts and Data Analysts are paid with a concentrated salary amount. 
+
+
+## Glassdoor rating vs salary, wrap by Industry
+```{r echo=FALSE, fig.height=7, fig.width=9}
+
+cor_df <- data %>%
+  drop_na(Rating)%>% 
+  drop_na(Sector)%>% 
+  drop_na(job_type)%>% 
+  group_by(Sector) %>%
+  summarize(cor = cor(Rating, `Avg_salary(k)`), beta = lm(`Avg_salary(k)`~Rating)$coefficients[2], meanprice = mean(`Avg_salary(k)`)) %>%
+  ungroup() %>%
+  arrange(beta) 
+
+data %>%
+  ggplot(aes(x=`Rating`,
+             y=`Avg_salary(k)`,color = `job_type`)) +
+  geom_line(stat="smooth",method = "lm", 
+              size = 0.8,
+              alpha = 0.5) + 
+  geom_point(size = .7,alpha = 0.2) +
+  facet_wrap(~fct_relevel(Sector, as.character(cor_df$Sector))) +
+  xlab('Rating') +
+  ylab("Average salary") +
+  labs(title = 'Rating vs salary wrap up by industry ') +
+  theme_linedraw() + 
+  center_title
+  
+  
+```
+
+We want to analyze the relationship between rating and salary. In different industry, does high rating company always pay high salary? The rating comes from the users in the Glassdoor. 
+
+We draw the scatter plot of rating and salary. Every graph represents a job industry, and every color represents a job title.
+
+In most of the graphs, rating and salary has a slightly positive correlation, excluding the industries that has few data related jobs. However, some industries have a different situation. For example, in the Real Estate industry, the higher the rating is, the lower the salary is. The reason of this situation may be about our data collection. Glassdoor is a website that everyone can rate and write comments. So, the data is not very authentic. And we can see that different job titles can influence the relationship between rating and salary. For example, in the finance industry, the Data Engineer job salary has a negative correlation with rating but the other three job salary has a slightly positive correlation.
+
+So, we come to a conclusion that in the most situation, the high rating comes with a high salary.
+
+## Alluvial plot (Sector, Type of ownership, salary_group) 
+```{r,echo=FALSE, fig.width=23, fig.height=15}
+data %>% 
+  drop_na(`Type of ownership`) %>% 
+  drop_na(Sector) %>% 
+  drop_na(`Avg_salary(k)`) ->data2
+
+data2 %>% 
+  mutate(salary_group = if_else(`Avg_salary(k)`>100,"high",
+                            if_else(`Avg_salary(k)`<70,"low","medium"))) %>% 
+  mutate(salary_group = factor(salary_group,levels = c("high","medium","low")))->data2
+
+data2 %>% 
+  group_by(Sector,`Type of ownership`,salary_group) %>% 
+  summarize(n = n()) %>% 
+  filter(n>100) %>% 
+  ggplot(aes(axis1 = Sector, axis2 = `Type of ownership`, axis3 = salary_group, y = n)) +
+  geom_alluvium(aes(fill = salary_group),color = "black") +
+  geom_stratum() +
+  geom_text(stat = "stratum", aes(label = paste(after_stat(stratum), "\n", after_stat(count))),size=5) +
+  scale_x_discrete(limits = c("Sector", "Type of ownership", "salary_group")) 
+
+```
+
+We want to analyze how the sector and the type of ownership influence the salary level as well as the relation of the sector and the type of ownership.
+
+Alluvial plots are a form of sankey diagrams that are a great tool for exploring categorical data. They group categorical data into flows that can easily be traced in the diagram. So, we can show the relationship of the three section ("sector", "type of ownership" and "salary") clearly.
+
+We divided the salary into three groups. If the average salary is larger than 100k dollars, we assume it is "high salary". If it is less than 70k dollars, we assume it is "low salary". Otherwise, we assume it is "medium salary". Alluvial plot shows that the type of ownership of the company has little influence on the salary level. For some type of ownership that account for a small part, they always pay low level of salary. For some sector that account for a small part, most of them pay low level of salary. But Biotech & Pharmaceuticals companies pay high level of salary even they account for a small part. Most high-level paid jobs are in the Information Technology sector, because there are many jobs in the Information Technology companies. Most Business Service companies, and most Information Technology companies are private companies. But most Finance companies are private companies, and all the Biotech & Pharmaceuticals companies are public companies.
+
+
+
+## Employee Salary Group VS Company Revenue Level - Mosaic Plot
+```{r echo=FALSE}
+
+data %>%
+  drop_na(Revenue)  %>% 
+
+  mutate(revenue_level = case_when(
+      Revenue =="$10+ billion (USD)" ~ "10b+",
+      Revenue =="$5 to $10 billion (USD)" ~ "10b",
+      Revenue =="$2 to $5 billion (USD)" ~ "5b",
+      Revenue =="$1 to $2 billion (USD)" ~ "2b",
+      Revenue =="$500 million to $1 billion (USD)" ~ "1b",
+      Revenue =="$100 to $500 million (USD)" ~ "0.5b",
+      Revenue =="$50 to $100 million (USD)" ~ "100m",
+      Revenue =="$25 to $50 million (USD)" ~ "50m",
+      Revenue =="$10 to $25 million (USD)" ~ "25m",
+      Revenue =="$5 to $10 million (USD)" ~ "10m",
+      Revenue =="$1 to $5 million (USD)" ~ "5m",
+      Revenue =="Less than $1 million (USD)" ~ "1m"
+    )) -> data_revenue
+
+```
+
+```{r echo=FALSE}
+data_revenue %>% 
+  drop_na(`Avg_salary(k)`) %>%
+  mutate(salary_group = if_else(`Avg_salary(k)`>100,"High(>100k)",
+                            if_else(`Avg_salary(k)`<80,"low(<90K)","medium(80~100K)"))) -> data_revenue_salary
+```
+
+
+```{r echo=FALSE, fig.width=10, fig.height = 6}
+data_revenue_salary %>% 
+  mutate(revenue_level = factor(revenue_level,levels = 
+                                 c("1m",
+                                   "5m",
+                                   "10m",
+                                   "25m",
+                                   "50m",
+                                   "100m",
+                                   "0.5b",
+                                   "1b",
+                                   "2b",
+                                   "5b",
+                                   "10b",
+                                   "10b+"
+                                   ))) %>% 
+  mutate(salary_group = factor(salary_group,levels = c("High(>100k)","medium(80~100K)","low(<90K)"))) %>% 
+  vcd::mosaic(salary_group~revenue_level, .,
+              shade = TRUE,
+              direction = c("v","h"),
+              highlighting_fill = RColorBrewer::brewer.pal(3, "Blues"),
+              spacing = vcd::spacing_dimequal(c(.3, 0, 0)),
+              main = "Employee Salary Group v.s. Company Revenue Level")
+
+
+```
+Revenue level of a company can be a very important factor to inspect on the salary of data science related jobs in the job market. Our guess is that for companies that have higher revenue, they pay more salary to their employees. A great way to find out the truth is to use the mosaic plot. 
+A mosaic plot is a sort of stacked bar chart that displays data as percentages in groups. It can show us the contingency table graphically. 
+From the result mosaic graph, we can find out that companies that have higher revenue will tend to have a larger portion of their employees being high paid. And medium revenue companies have the smallest portion of employees being high paid comparing to other companies.

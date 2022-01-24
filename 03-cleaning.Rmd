@@ -1,0 +1,225 @@
+# Data transformation
+
+```{r echo=FALSE}
+if(!require(plyr)) install.packages("plyr")
+if(!require(dplyr)) install.packages("dplyr")
+if(!require(tibble)) install.packages("tibble")
+if(!require(tidyr)) install.packages("tidyr")
+if(!require(ggplot2)) install.packages("ggplot2")
+if(!require(forcats)) install.packages("forcats")
+if(!require(patchwork)) install.packages("patchwork")
+if(!require(scales)) install.packages("scales")
+if(!require(readr)) install.packages("readr")
+if(!require(ggthemes)) install.packages("ggthemes")
+if(!require(ggrepel)) install.packages("ggrepel")
+if(!require(GGally)) install.packages("GGally")
+if(!require(plotly)) install.packages("plotly")
+if(!require(forcats)) install.packages("forcats")
+if(!require(stringr)) install.packages("stringr")
+
+if(!require(ggpubr)) install.packages("ggpubr")
+if(!require(PupillometryR)) install.packages("PupillometryR")
+if(!require(ggridges)) install.packages("ggridges")
+if(!require(RColorBrewer)) install.packages("RColorBrewer")
+if(!require(magrittr)) install.packages("magrittr") # allow %<>%
+
+if(!require(vcd)) install.packages("vcd")
+if(!require(d3r)) install.packages("d3r")
+if(!require(ggalluvial)) install.packages("ggalluvial")
+if(!require(parcoords)) install.packages("parcoords")
+if(!require(openxlsx)) install.packages("openxlsx")
+# pair plot
+if(!require(ggplot2)) install.packages("ggplot2")
+if(!require(gridGraphics)) install.packages("gridGraphics")
+if(!require(gridExtra)) install.packages("gridExtra")
+
+library("data.table")
+
+theme(plot.title = element_text(hjust=0.5))  -> center_title
+```
+
+
+```{r echo=FALSE}
+library("data.table")
+
+writeEXCEL <- function(df, file = filename, fgFill = "#007b58") {
+  options("openxlsx.borderColour" = fgFill)
+  hs <- createStyle(
+    textDecoration = "BOLD",
+    fontColour = "#FFFFFF",
+    fontSize = 12.5,
+    fontName = "Microsoft YaHei",
+    #border = c("left", "right"),
+    fgFill = fgFill,
+    halign = "center",
+    valign = "center",
+    wrapText = T
+  )
+  
+  write.xlsx(
+    df,
+    file = file,
+    #borders = 'all',
+    firstRow = TRUE,
+    asTable = TRUE,
+    withFilter = TRUE,
+    colWidths = 50, 
+    headerStyle = hs
+  )
+}
+
+```
+The data we have are four csv files, which are grouped by four kinds of  job titles: data science, data analyst, data engineer and business analyst. However, through scanning the dataset, we found that some of the tags inside the document are incorrect. Thus, the first step we take is through searching keywords inside the job title column and job description column, re-classifying our data. The sequence we labeled them is based on counts of their appearance inside the entire dataset. For instance, a job could both contain keywords for data science and data analyst. However, since data analyst appears more frequently, we tagged this job as data scientist. Meanwhile, we also fix typos and format similar meaning job titles into one, such as ‘Sr. Data scientist’ means the same as ‘Senior Data scientist’. Also, missing values are written in different formats such as “-1”, “not applicable” . They are replaced by NA. In addition, we separate the estimated salary into continuous data form: min_salary, max_salary and mean_salary to better analyze the dataset. Also, the location column is separated into “city” and “state” to be used inside the D3 interactive plot.
+
+
+```{r echo=FALSE}
+fread("data/BusinessAnalyst.csv") %>% select(-c(V1, index)) -> df_ba
+fread("data/DataAnalyst.csv")  -> df_da
+fread("data/DataEngineer.csv") -> df_de
+fread("data/DataScientist.csv") %>% select(-c(V1, index)) -> df_ds
+```
+
+```{r include=FALSE}
+inner_join(
+  df_ds %>% transmute(`Job Title`, `Job Description`, `Company Name`, datafile = "DS"),
+  df_da %>% transmute(`Job Title`, `Job Description`, `Company Name`, datafile = "DA"),
+  by = "Job Description"
+) %>% unique %>%
+  arrange_at("Job Title.x")
+  
+
+```
+ 
+Here is a list of labels based on keyword search in data title and data description.
+
+```{r echo=FALSE}
+bind_rows(
+  df_ba,
+  df_da,
+  df_de,
+  df_ds
+) %>% 
+  distinct(`Job Title`, `Job Description`, `Company Name`) %>%
+  mutate(is_de_byjd = ifelse(grepl("Data Engineer|Big Data|data engineer|Data engineer|data Engineer", `Job Description`), 1, 0)) %>%
+  mutate(is_de_byjt = ifelse(grepl("Data Engineer|DE|Big Data", `Job Title`, ignore.case = T), 1, 0)) %>%
+  
+  mutate(is_da_byjd = ifelse(grepl("Data Analyst|Data Analysis|Data analyst|data analyst", `Job Description`), 1, 0)) %>%
+  mutate(is_da_byjt = ifelse(grepl("Data Analyst|Data Analysis|DA", `Job Title`, ignore.case = T), 1, 0)) %>%
+
+  mutate(is_ds_byjd = ifelse(grepl("Data Scientist|data scientist|Data scientist||data Scientist|Data Science|data science|Data science|NLP|Machine Learning|machine learning|Machine learning", `Job Description`,), 1, 0)) %>%
+  mutate(is_ds_byjt = ifelse(grepl("Data Scientist|Data Science|DS|NLP|Machine Learning|ML", `Job Title`, ignore.case = T), 1, 0)) %>%
+  
+  mutate(is_ba_byjd = ifelse(grepl("Business Analyst|business analyst|Business analyst|Business Analytics|business analytics|Business analytics", `Job Description`), 1, 0)) %>%
+  mutate(is_ba_byjt = ifelse(grepl("Business Analyst|Business|BA|Business Analytics", `Job Title`, ignore.case = T), 1, 0)) %>%
+  
+  mutate(is_others = ifelse(is_de_byjd + is_de_byjt + is_da_byjd + is_da_byjt + is_ba_byjt + is_ba_byjd + is_ds_byjt + is_ds_byjd== 0, 1, 0)) -> df_labeled   
+  
+df_labeled %>%
+  pivot_longer(4:ncol(.)) %>% 
+  filter(value!=0) %>%
+  group_by(name) %>%
+  summarise(n = n()) %>%
+  arrange(-n) %>% 
+  pull(name)  #give sequence 
+
+df_labeled %>%
+  mutate(job_type = case_when(
+    is_ds_byjt == 1 ~ "DS",
+    is_de_byjt == 1 ~ "DE",
+    is_ba_byjt == 1 ~ "BA",
+    is_da_byjt == 1 ~ "DA",
+    
+    is_ds_byjd == 1 ~ "DS",
+    is_de_byjd == 1 ~ "DE",
+    is_ba_byjd == 1 ~ "BS",
+    is_da_byjd == 1 ~ "DA"
+
+  )) %>% #Job title is more accurate than JD
+  select(`Job Title`, `Job Description`, `Company Name`, job_type) -> unique_mapper
+```
+
+
+```{r echo=FALSE}
+# one to one
+unique_mapper %>%
+ggplot() +
+  aes(x =  job_type) +
+  geom_histogram(stat="count") +
+  labs(title = 'Count of four new job label', x = "Job title") +
+  center_title
+```
+
+This graph indicates the counts of four types after we reclassify them.  From the table, we could clearly see that DA>DS>BA>DE.
+
+
+```{r echo=FALSE}
+bind_rows(
+  df_ba %>% mutate(file_Type = "BA"),
+  df_da %>% mutate(file_Type = "DA"),
+  df_de %>% mutate(file_Type = "DE"),
+  df_ds %>% mutate(file_Type = "DS")
+) %>%
+  unique %>%
+  left_join(unique_mapper)  -> clean_jobT  
+
+```
+
+
+```{r echo=FALSE}
+clean_jobT %>%
+  select(1:ncol(.))%>%
+  mutate_all(~ifelse(. %in% c("NA", -1, "Unknown", "Unknown / Non-Applicable"), NA, .))   %>%
+  mutate_at('Job Title',~ifelse(. %in% c("Sr. Data Analyst","Sr Data Analyst","Sr Analyst,Dara","(Senior) Data Engineer" ), "Senior Data Analyst", .)) %>%
+  mutate_at('Job Title' ,~ifelse(. %in% c("Jr. Data Analyst","Jr Data Analyst","Data Analyst Junior"), "Junior Data Analyst", .)) %>%
+  #mutate_at('Job Title',~str_replace_all(., "+", ""))  %>%
+  as_tibble %>%
+  separate(`Company Name`, into = c("Name of Company","rate"), sep = "\n",remove = T) %>% 
+  select(-rate)%>% 
+  separate(`Salary Estimate`, into = c("low","high"), sep = "-",remove = T) %>%
+  mutate(low_salary = as.numeric(str_extract(low, "\\d+")),
+         high_salary = as.numeric(str_extract(high, "\\d+")),
+         avg_salary = (low_salary + high_salary) / 2)  %>% 
+  rename("Low_salary(k)" = low_salary,
+        "High_salary(k)" = high_salary, 
+        "Avg_salary(k)" = avg_salary) %>%  
+  select(c(-low,-high))-> clean_data  
+
+```
+
+
+```{r echo=FALSE}
+
+fread("data/state.csv") -> state_df
+
+clean_data %>% 
+  mutate(State = str_sub(`Location`,-2))  %>% 
+  right_join(state_df)   %>% 
+  relocate(State, .before = `Location`)  -> clean_loc  
+
+split(clean_data, ~job_type) ->  clean_locs 
+
+```
+
+```{r echo=FALSE}
+clean_loc %>% 
+  mutate(State = str_sub(`Location`,-2))  %>% 
+  right_join(state_df)   %>% 
+  relocate(State, .before = `Location`)  %>% 
+  group_by(State,job_type) %>% 
+  mutate(n = n(),
+            salary_state_avg = mean(`Avg_salary(k)`, na.rm=T))%>% 
+  arrange(-salary_state_avg) -> state_salary
+```
+
+
+```{r echo=FALSE}
+# clean_loc %>%
+#   writeEXCEL("clean_loc.xlsx") 
+#   
+# state_salary %>%
+#   writeEXCEL("state_salary_new.xlsx")
+```
+
+
+
+
